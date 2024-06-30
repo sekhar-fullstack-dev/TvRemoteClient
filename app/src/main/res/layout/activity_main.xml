@@ -5,7 +5,7 @@
     <data>
         <variable
             name="model"
-            type="String" />
+            type="com.example.tvremoteclient.viewmodel.MainActivityViewModel" />
     </data>
     <androidx.constraintlayout.widget.ConstraintLayout
         android:orientation="vertical"
@@ -18,34 +18,68 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:ems="10"
-            android:inputType="text"
             android:visibility="invisible"
-            android:text="Enter IP Address"
+            android:inputType="text"
+            android:hint="Enter IP Address"
             android:layout_marginTop="50dp"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
 
-        <Button
+        <EditText
+            android:id="@+id/etMessageBody"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:id="@+id/connect"
-            android:text="Connect"
+            android:ems="10"
+            android:inputType="text"
             android:visibility="invisible"
-            app:layout_constraintStart_toStartOf="parent"
+            android:hint="Enter Message"
+            android:layout_marginTop="20dp"
             app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/etIpAddress" />
+
+        <Button
+            android:id="@+id/send"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Send"
+            android:visibility="invisible"
             app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintTop_toTopOf="parent"/>
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/etMessageBody"
+            app:layout_constraintVertical_bias="0.13" />
 
         <TextView
-            android:id="@+id/ipAddress"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="IP Address"
-            app:layout_constraintBottom_toTopOf="@+id/connect"
+            android:id="@+id/ipAddress"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/etMessageBody"
+            tools:text="0.0.0.0"/>
+
+        <ImageView
+            android:id="@+id/imageView"
+            android:layout_width="100dp"
+            android:layout_height="100dp"
+            android:src="@drawable/icon_mobile_server"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/etIpAddress" />
+            android:layout_marginTop="20dp"
+            app:layout_constraintTop_toBottomOf="@+id/ipAddress" />
+
+        <TextView
+            android:id="@+id/textView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textStyle="bold"
+            android:text="@{model.isConencted?`Conenction acquired`:`Connection is establishing with the TV`}"
+            app:layout_constraintEnd_toEndOf="@+id/imageView"
+            android:layout_marginTop="40dp"
+            app:layout_constraintStart_toStartOf="@+id/imageView"
+            app:layout_constraintTop_toBottomOf="@+id/imageView" />
 
 
     </androidx.constraintlayout.widget.ConstraintLayout>

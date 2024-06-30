@@ -12,6 +12,9 @@ import com.example.tvremoteclient.databinding.ActivityMainBinding;
 
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.concurrent.ExecutorService;
@@ -22,13 +25,49 @@ public class MainActivity extends AppCompatActivity{
     private ExecutorService executorService = Executors.newFixedThreadPool(2);
     ActivityMainBinding binding;
     private PrintWriter out;
+    private DatagramSocket socket;
+    private int serverPort = 12345;
 
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         binding = DataBindingUtil.setContentView(this, R.layout.activity_main);
+        binding.send.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                executorService.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        sendMessage();
+                    }
+                });
+            }
+        });
+    }
 
+    private void sendMessage() {
+        try {
+            String message = binding.etMessageBody.getText().toString();
+            String serverIP = binding.etIpAddress.getText().toString();
+            // Convert the message into bytes
+            byte[] buffer = message.getBytes();
+
+            // Get the internet address of the server
+            InetAddress address = InetAddress.getByName(serverIP);
+
+            // Create a packet to send the message to the server
+            DatagramPacket packet = new DatagramPacket(buffer, buffer.length, address, serverPort);
+
+            // Create a socket
+            socket = new DatagramSocket();
+
+            // Send the packet
+            socket.send(packet);
+            Log.d(TAG, "sendMessage: Message sent to the server "+message);
+        }catch (Exception e){
+            e.printStackTrace();
+        }
     }
 
     private void startServer() {

@@ -1,6 +1,5 @@
 package com.example.tvremoteclient;
 
-import android.annotation.SuppressLint;
 import android.content.Context;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
@@ -9,30 +8,36 @@ import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.util.Log;
-import android.widget.TextView;
+import android.view.View;
 import android.widget.Toast;
 
-import androidx.appcompat.app.AppCompatActivity;
+import androidx.databinding.DataBindingUtil;
+import androidx.lifecycle.ViewModelProvider;
+
+import com.example.tvremoteclient.base.BaseActivity;
+import com.example.tvremoteclient.databinding.ActivityMainBinding;
+import com.example.tvremoteclient.services.AndroidWebServer;
+import com.example.tvremoteclient.viewmodel.MainActivityViewModel;
 
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
-import java.io.PrintWriter;
+import java.io.OutputStream;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
-import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 // MainActivity.java
-public class MainActivity2 extends AppCompatActivity implements SensorEventListener {
+public class MainActivity2 extends BaseActivity implements SensorEventListener {
 
     private ServerSocket serverSocket;
     Thread serverThread = null;
@@ -45,38 +50,166 @@ public class MainActivity2 extends AppCompatActivity implements SensorEventListe
     private Sensor accelerometer;
     private Sensor gyroscope;
     private long lastUpdateTime = 0;
+    ActivityMainBinding binding;
+    MainActivityViewModel model;
     private boolean isCalibrated = false;
     private float baselinePitch;
     private Sensor rotationVectorSensor;
     private float baselineYaw = Float.NaN; // Initialize with NaN to check if it's set
     private boolean isBaselineSet = false;
     private String pointerLocation = "";
+    private DatagramSocket socket;
+    private int serverPort = 12345;
+    private boolean isTransfer = false;
+    private AndroidWebServer webServer;
+    private String tvIP;
+    private ExecutorService service = Executors.newFixedThreadPool(2);
 
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
-        @SuppressLint({"MissingInflatedId", "LocalSuppress"})
-        TextView ipAddress = findViewById(R.id.ipAddress);
-        ipAddress.setText(getIpAddress());
+        binding = DataBindingUtil.setContentView(this, R.layout.activity_main);
+        model = new ViewModelProvider(this).get(MainActivityViewModel.class);
+        binding.setModel(model);
+        binding.setLifecycleOwner(this);
 
-        this.serverThread = new Thread(new ServerThread());
-        this.serverThread.start();
+        binding.ipAddress.setText(getIpAddress());
+        tvIP = getIntent().getStringExtra("IP");
+        checkStoragePermission();
 
+
+    }
+
+    @Override
+    protected void onStoragePermission(boolean isPermissionGranted) {
+        if (isPermissionGranted){
+            startServer();
+        }
+    }
+
+    private void startServer() {
+        int port = 3000; // Choose an appropriate port
+        webServer = new AndroidWebServer(port, getApplicationContext());
+        try {
+            webServer.start();
+            Toast.makeText(this, "Server started on port: " + port, Toast.LENGTH_LONG).show();
+            exchangeIpAddressWithTV();
+        } catch (IOException e) {
+            e.printStackTrace();
+            Toast.makeText(this, "Failed to start server: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void exchangeIpAddressWithTV() {
+
+        service.execute(new Runnable() {
+            @Override
+            public void run() {
+                Socket socket1 = null;
+                OutputStream outputStream = null;
+                BufferedReader inputStream = null;
+                try {
+                    socket1 = new Socket();
+                    socket1.connect(new InetSocketAddress(tvIP, 3005), 5000); // 5 seconds timeout
+                    outputStream = socket1.getOutputStream();
+                    inputStream = new BufferedReader(new InputStreamReader(socket1.getInputStream()));
+
+
+                    String ip = getIpAddress();
+                    outputStream.write(ip.getBytes());
+                    outputStream.flush();
+
+                    // Listen for response
+                    String response;
+                    while ((response = inputStream.readLine()) != null) {
+                        model.isConencted.setValue(true);
+                        if (response.equals("OK")){
+                            initializeSensors();
+                        }
+                        else{
+                            //Toast.makeText(MainActivity2.this, "Response from the TV is wrong : "+response, Toast.LENGTH_SHORT).show();
+                        }
+                    }
+                }catch (Exception e){
+                    e.printStackTrace();
+                    //Toast.makeText(MainActivity2.this, "Could not exchange the ip address with the tv"+e, Toast.LENGTH_SHORT).show();
+                }
+                finally {
+                    try {
+                        if (inputStream != null) {
+                            inputStream.close();
+                        }
+                        if (outputStream != null) {
+                            outputStream.close();
+                        }
+                        if (socket1 != null) {
+                            socket1.close();
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        });
+
+    }
+
+    private void initializeSensors() {
         // Initialize the sensor manager and sensors
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
         rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
 
+        binding.send.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                isTransfer = true;
+            }
+        });
 
+
+    }
+
+    private void sendMessage() {
+        try {
+            String message = pointerLocation;
+            String serverIP = binding.etIpAddress.getText().toString();
+            // Convert the message into bytes
+            byte[] buffer = message.getBytes();
+
+            // Get the internet address of the server
+            InetAddress address = InetAddress.getByName(serverIP);
+
+            // Create a packet to send the message to the server
+            DatagramPacket packet = new DatagramPacket(buffer, buffer.length, address, serverPort);
+
+            // Create a socket
+            socket = new DatagramSocket();
+
+            // Send the packet
+            executorService.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        socket.send(packet);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+            });
+            Log.d(TAG, "sendMessage: Message sent to the server "+message);
+        }catch (Exception e){
+            e.printStackTrace();
+        }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        sensorManager.unregisterListener(this);
+        if (sensorManager!=null)
+            sensorManager.unregisterListener(this);
     }
 
     @Override
@@ -85,19 +218,26 @@ public class MainActivity2 extends AppCompatActivity implements SensorEventListe
         // Re-register the sensors when the app resumes
         //sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
         //sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_GAME);
-        sensorManager.registerListener(this, rotationVectorSensor, SensorManager.SENSOR_DELAY_NORMAL);
+        if (sensorManager!=null)
+            sensorManager.registerListener(this, rotationVectorSensor, SensorManager.SENSOR_DELAY_GAME);
     }
 
     @Override
     protected void onDestroy() {
-        super.onDestroy();
+        isTransfer = false;
         try {
             serverSocket.close();
+            if (webServer != null) {
+                webServer.stop();
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
+        super.onDestroy();
     }
 
+    private float[] lastYawPitch = new float[2]; // lastYawPitch[0] for yaw, lastYawPitch[1] for pitch
+    private static final float ALPHA = 0.1f; // Smoothing constant
     @Override
     public void onSensorChanged(SensorEvent event) {
         if (event.sensor.getType() == Sensor.TYPE_ROTATION_VECTOR) {
@@ -111,102 +251,47 @@ public class MainActivity2 extends AppCompatActivity implements SensorEventListe
             SensorManager.getOrientation(rotationMatrix, orientationAngles);
 
             float currentYaw = (float) Math.toDegrees(orientationAngles[0]); // Convert radians to degrees
-            float pitchDegrees = (float) Math.toDegrees(orientationAngles[1]); // Convert radians to degrees
+            float currentPitch = (float) Math.toDegrees(orientationAngles[1]); // Convert radians to degrees
 
             if (!isBaselineSet) {
-                baselineYaw = currentYaw; // Set the initial baseline yaw
+                baselineYaw = currentYaw;
+                baselinePitch = currentPitch;
+                lastYawPitch[0] = currentYaw;
+                lastYawPitch[1] = currentPitch;
                 isBaselineSet = true;
             }
 
+            // Apply low-pass filter
+            currentYaw = lastYawPitch[0] += ALPHA * (currentYaw - lastYawPitch[0]);
+            currentPitch = lastYawPitch[1] += ALPHA * (currentPitch - lastYawPitch[1]);
+
+            // Adjust based on baseline
             float adjustedYaw = currentYaw - baselineYaw;
+            float adjustedPitch = currentPitch - baselinePitch;
 
-            // Debug output
-
-            // Normalize adjustedYaw to be within -180 to 180 for correct mapping
+            // Normalize the yaw to be within -180 to 180
             adjustedYaw = (adjustedYaw + 360) % 360;
             if (adjustedYaw > 180) {
                 adjustedYaw -= 360;
             }
 
-            // Map yaw degrees to screen coordinates, adjusting for the desired screen coverage
-            int x = (int) ((adjustedYaw / 60.0) * (screenWidth / 2) + (screenWidth / 2));
-            int y = (int) ((pitchDegrees / 50.0) * (screenHeight / 2) + (screenHeight / 2));
+            // Map yaw and pitch to screen coordinates
+            int x = (int) ((adjustedYaw / 30.0) * (screenWidth / 2) + (screenWidth / 2));
+            int y = (int) ((adjustedPitch / 25.0) * (screenHeight / 2) + (screenHeight / 2));
 
             x = Math.max(0, Math.min(screenWidth, x));
             y = Math.max(0, Math.min(screenHeight, y));
 
-            // Debug output
-            pointerLocation = x+":"+y;
+            // Update pointer location in a thread-safe manner
+            pointerLocation = x + ":" + y;
+            if (isTransfer){
+                sendMessage();
+            }
         }
     }
-
-    private void sendPointerPosition(int x, int y) {
-        Log.d(TAG, "sendPointerPosition: ("+x+":"+y+")");
-    }
-
-    private float integrateGyroData(float rateOfRotation) {
-        if (lastUpdateTime == 0) {
-            lastUpdateTime = System.nanoTime();
-            return 0;
-        }
-
-        long currentTime = System.nanoTime();
-        float deltaTime = (currentTime - lastUpdateTime) / 1_000_000_000.0f; // Convert nanoseconds to seconds
-        lastUpdateTime = currentTime;
-
-        // Angular change in degrees
-        return rateOfRotation * deltaTime * (float) (180.0 / Math.PI); // Convert radians to degrees
-    }
-
 
     @Override
     public void onAccuracyChanged(Sensor sensor, int accuracy) {
-
-    }
-
-    private class ServerThread implements Runnable {
-        @Override
-        public void run() {
-            Socket socket = null;
-            try {
-                serverSocket = new ServerSocket(SERVERPORT);
-                Log.d(TAG, "run: server started");
-                socket = serverSocket.accept();
-                Socket finalSocket = socket;
-                input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                Log.d(TAG, "run: "+input.readLine());
-                while (!Thread.currentThread().isInterrupted()) {
-                    executorService.execute(new Runnable() {
-                        @Override
-                        public void run() {
-                            communicate(finalSocket);
-                        }
-                    });
-                }
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-
-        }
-    }
-
-    private void communicate(Socket clientSocket){
-        while (!Thread.currentThread().isInterrupted()) {
-            handler.post(() -> {
-                PrintWriter out;
-                try {
-                    out = new PrintWriter(new BufferedWriter(new OutputStreamWriter(clientSocket.getOutputStream())), true);
-                    executorService.execute(new Runnable() {
-                        @Override
-                        public void run() {
-                            out.println(pointerLocation+"\n");
-                        }
-                    });
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            });
-        }
 
     }
 
@@ -226,4 +311,5 @@ public class MainActivity2 extends AppCompatActivity implements SensorEventListe
         }
         return null;
     }
+
 }
